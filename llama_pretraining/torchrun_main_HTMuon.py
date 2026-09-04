@@ -30,6 +30,8 @@ from peft_pretraining.dataloader import PreprocessedIterableDataset
 from peft_pretraining.modeling_llama import LlamaForCausalLM
 
 from muon import MuonWithAuxAdam,HTMuonHTWithAuxAdam, HTMuonWithAuxAdam,HTMuonNSWithAuxAdam,HTMuonIntervalWithAuxAdam,HTMuonNSIntervalWithAuxAdam,HTMuonWithAuxAdam_Stream
+from soren_lamda import MuonWithAuxAdam_lamdba
+from soren import MuonWithAuxAdam_sigmoid
 
 from AdEMAMix import AdEMAMix
 from c_adamw import AdamW as C_AdamW
@@ -227,7 +229,7 @@ def main(args):
             
     # initialize wandb without config (it is passed later)
     if global_rank == 0:
-        wandb.init(project="htmuon_test", name=args.wandb_name)
+        wandb.init(project="soren", name=args.wandb_name)
         
     logger.info(f"Using dist with rank {global_rank} (only rank 0 will log)")
     logger.info("*" * 40)
@@ -437,6 +439,10 @@ def main(args):
         optimizer = configure_optimizers(trainable_params, args.weight_decay, args.lr, 'cuda' if 'cuda' in device else 'cpu', args.use_modulewise_wd)
     elif  args.optimizer.lower() == "muon":   
         optimizer = MuonWithAuxAdam(trainable_params)
+    elif args.optimizer.lower() == "soren":
+        optimizer = MuonWithAuxAdam_sigmoid(trainable_params)
+    elif args.optimizer.lower() == "soren_lamda":
+        optimizer = MuonWithAuxAdam_lamdba(trainable_params)
     elif args.optimizer.lower() == "soap":
         optimizer = SOAP(trainable_params, lr = args.lr, betas=(.95, .95), weight_decay=args.weight_decay, precondition_frequency=10)
     elif args.optimizer.lower() == "mars":
