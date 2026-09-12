@@ -56,6 +56,14 @@ def newton_schulz_sigmoid_rect(G, steps=5):
         result = result.squeeze(0)
     return result
 
+def exact_matrix_sigmoid(G):
+    orig_dtype = G.dtype
+    G = G.float()
+    U, s, Vh = torch.linalg.svd(G, full_matrices=False)
+    s_sig = torch.sigmoid(s)
+    result = (U * s_sig) @ Vh
+    return result.to(orig_dtype)
+
 def muon_update(grad, momentum, beta=0.95, ns_steps=5, nesterov=True):
     momentum.lerp_(grad, 1 - beta)
     update = grad.lerp_(momentum, beta) if nesterov else momentum
@@ -65,12 +73,12 @@ def muon_update(grad, momentum, beta=0.95, ns_steps=5, nesterov=True):
     update *= max(1, update.size(-2) / update.size(-1))**0.5
     return update
 
-def muon_update_sigmoid(grad, momentum, beta=0.95, ns_steps=5, nesterov=True):
+def muon_update_sigmoid(grad, momentum, beta=0.95, nesterov=True):
     momentum.lerp_(grad, 1 - beta)
     update = grad.lerp_(momentum, beta) if nesterov else momentum
     if update.ndim == 4: # for the case of conv filters
         update = update.view(len(update), -1)
-    update = newton_schulz_sigmoid_rect(update, steps=ns_steps)
+    update = exact_matrix_sigmoid(update)
     update *= max(1, update.size(-2) / update.size(-1))**0.5
     return update
 
