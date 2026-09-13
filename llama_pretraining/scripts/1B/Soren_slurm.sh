@@ -8,7 +8,7 @@
 #SBATCH --gres=gpu:L40S:4
 #SBATCH --mem=100GB
 #SBATCH --time=336:00:00
-#SBATCH --output=soren-1b-%j.out
+#SBATCH --output=soren-1b-lr-0.01-%j.out
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=tucnguye@iu.edu
 # -----------------------------------------------------------------------
@@ -23,7 +23,7 @@ RUN_ROOT=/data/project/le-lab/Soren/runs
 GPUS=${GPUS:-${SLURM_GPUS_ON_NODE:-4}}
 MICRO_BATCH=${MICRO_BATCH:-32}        # per-GPU; 128 OOMs a 1B model even on 48GB
 TOTAL_BATCH=${TOTAL_BATCH:-512}       # global batch, held fixed across GPU counts
-RUN_NAME=${RUN_NAME:-soren_1b}
+RUN_NAME=${RUN_NAME:-soren_1b_muonlr_0.01}
 
 if (( TOTAL_BATCH % (MICRO_BATCH * GPUS) != 0 )); then
     echo "TOTAL_BATCH ($TOTAL_BATCH) must be divisible by MICRO_BATCH*GPUS ($((MICRO_BATCH * GPUS)))" >&2
@@ -75,7 +75,7 @@ torchrun --nproc_per_node="$GPUS" --master_port="$MASTER_PORT" --master_addr=loc
     --optimizer soren \
     --seed 5 \
     --lr 0.001 \
-    --lrmuon 5e-3 \
+    --lrmuon 0.01 \
     --batch_size "$MICRO_BATCH" \
     --total_batch_size "$TOTAL_BATCH" \
     --num_training_steps 90000 \
