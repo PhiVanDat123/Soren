@@ -361,7 +361,10 @@ def main(args):
     #             use_muon=False, lr=args.lr, betas=(0.9, 0.95), weight_decay=args.weight_decay),
     #     ]
 
-    if 'muon' in args.optimizer.lower():
+    # soren / soren_lamda are Muon variants but their names contain no "muon",
+    # so they need naming here or they fall through to the flat parameter list
+    # and blow up on `assert "use_muon" in group`.
+    if 'muon' in args.optimizer.lower() or 'soren' in args.optimizer.lower():
         body_modules = nn.ModuleDict({
             "layers": model.model.layers,
             "norm": model.model.norm,

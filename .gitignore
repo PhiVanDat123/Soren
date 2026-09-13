@@ -1,0 +1,15 @@
+# Python bytecode
+__pycache__/
+*/__pycache__/*
+*.py[cod]
+*.egg-info/
+
+# Training outputs
+runs/
+checkpoints/
+wandb/
+
+# Slurm job logs
+*.out
+*.err
+slurm-*

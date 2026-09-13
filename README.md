@@ -4,17 +4,14 @@
 ## Update
 - [x] ( April 2026) Based on [Su's blog](https://kexue.fm/archives/11654), we have implemented the first accelerated version of HTMuon based on streaming power iteration, and more optimized versions will be released in the future. Thanks to Jianlin Su for the great work!
 
-
-
 ## Installation
-
 ### Setup
 
 Our repository is built on top of [Galore](https://github.com/jiaweizzhao/GaLore), [MARS](https://github.com/AGI-Arena/MARS) and [AlphaDecay](https://github.com/hed-ucas/AlphaDecay). You can configure the environment using the following command lines:
 ```bash
-conda create -n htmuon python=3.9 -y
-conda activate htmuon
-conda install -r requirements
+conda create -p /data/project/le-lab/conda_env/htmuon python=3.9 -y
+conda activate /data/project/le-lab/conda_env/htmuon
+pip install -r requirements.txt
 ```
 
 ### Prepare Dataset
@@ -167,3 +164,7 @@ torchrun --nproc_per_node=4 --master_port=20119 --master_addr=localhost torchrun
 ### Acknowledgement
 This repository is build upon the [Galore](https://github.com/jiaweizzhao/GaLore),[MARS](https://github.com/AGI-Arena/MARS)  and [AlphaDecay](https://github.com/hed-ucas/AlphaDecay) repositories. Thanks for their great work!
 
+## Experiment Running
+-  Edit those file for sbatch request:
+- /data/project/le-lab/Soren/llama_pretraining/scripts/1B/HTMuonInterval.sh
+- /data/project/le-lab/Soren/llama_pretraining/scripts/1B/Soren.sh

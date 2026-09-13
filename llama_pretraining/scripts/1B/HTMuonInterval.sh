@@ -1,4 +1,4 @@
-export WANDB_API_KEY='Your_WandB_API_Key_Here'
+export WANDB_API_KEY='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'
 export CUDA_VISIBLE_DEVICES=0,1,2,3
 torchrun --nproc_per_node=4 --master_port=20119 --master_addr=localhost torchrun_main_HTMuon.py \
     --model_config configs/llama_1b.json \
@@ -15,6 +15,6 @@ torchrun --nproc_per_node=4 --master_port=20119 --master_addr=localhost torchrun
     --weight_decay 0.1\
     --dtype bfloat16 \
     --eval_every 1000 \
-    --wandb_name 'Your_WandB_Name_Here' \
+    --wandb_name 'htmuon' \
     --target_eval_tokens 10_000_000 \
     --save_every 10000
