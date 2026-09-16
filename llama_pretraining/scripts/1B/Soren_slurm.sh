@@ -9,6 +9,7 @@
 #SBATCH --mem=100GB
 #SBATCH --time=336:00:00
 #SBATCH --output=soren-1b-lr-0.01-%j.out
+#SBATCH --requeue
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=tucnguye@iu.edu
 # -----------------------------------------------------------------------
@@ -44,6 +45,10 @@ cd "$REPO" # configs/ and the entrypoint are relative
 
 # Keep HF and W&B caches off the home quota.
 export HF_HOME=${HF_HOME:-/data/project/le-lab/conda_env/.hf_cache}
+# HF_HOME relocates the token lookup to $HF_HOME/token, so the login token in
+# ~/.cache/huggingface is invisible and every C4 request goes out anonymous --
+# anonymous traffic gets rate-limited (HTTP 429) on long runs. Pass it through.
+export HF_TOKEN=${HF_TOKEN:-$(cat /u/tucnguye/.cache/huggingface/token 2>/dev/null || true)}
 export WANDB_DIR=${WANDB_DIR:-$RUN_ROOT}
 export TOKENIZERS_PARALLELISM=false
 export OMP_NUM_THREADS=4
@@ -58,9 +63,16 @@ mkdir -p "$SAVE_DIR"
 # Unique port so concurrent jobs on the same node do not collide.
 MASTER_PORT=$(( 20000 + (${SLURM_JOB_ID:-$RANDOM} % 10000) ))
 
-# Optional resume: RESUME_FROM=/path/to/model_10000
+# Resume: explicit RESUME_FROM wins; otherwise pick up the newest checkpoint in
+# SAVE_DIR. Slurm keeps the same job id across --requeue, so SAVE_DIR is stable
+# and a requeued job continues where it left off instead of restarting at step 0.
 RESUME_ARGS=()
+if [[ -z "${RESUME_FROM:-}" ]]; then
+    LATEST=$(ls -d "$SAVE_DIR"/model_* 2>/dev/null | sed 's#.*/model_##' | sort -n | tail -1 || true)
+    [[ -n "$LATEST" ]] && RESUME_FROM="$SAVE_DIR/model_$LATEST"
+fi
 if [[ -n "${RESUME_FROM:-}" ]]; then
+    echo "resuming from $RESUME_FROM"
     RESUME_ARGS=(--continue_from "$RESUME_FROM")
 fi
 
@@ -78,14 +90,14 @@ torchrun --nproc_per_node="$GPUS" --master_port="$MASTER_PORT" --master_addr=loc
     --lrmuon 0.01 \
     --batch_size "$MICRO_BATCH" \
     --total_batch_size "$TOTAL_BATCH" \
-    --num_training_steps 90000 \
-    --warmup_steps 9000 \
+    --num_training_steps 15000 \
+    --warmup_steps 1500 \
     --weight_decay 0.1 \
     --dtype bfloat16 \
-    --eval_every 1000 \
+    --eval_every 150 \
     --wandb_name "$RUN_NAME" \
     --target_eval_tokens 10_000_000 \
-    --save_every 10000 \
+    --save_every 1000 \
     --save_dir "$SAVE_DIR" \
     --workers 4 \
     "${RESUME_ARGS[@]}"

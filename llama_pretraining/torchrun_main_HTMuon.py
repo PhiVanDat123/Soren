@@ -523,6 +523,28 @@ def main(args):
             warmup_steps=args.warmup_steps,
             min_lr_ratio=args.min_lr_ratio)
 
+    # Resume restores model weights and step counters above, but optimizer.pt was
+    # written and never read: without this the LR schedule restarts from warmup
+    # and Muon/HTMuon lose their momentum buffers on every requeue.
+    if args.continue_from is not None:
+        _opt_path = os.path.join(args.continue_from, "optimizer.pt")
+        if os.path.exists(_opt_path):
+            _ckpt = torch.load(_opt_path, map_location="cpu", weights_only=False)
+            if args.optimizer.lower() == "a_d_a_m_u_o_n":
+                opt_adamw.load_state_dict(_ckpt["optimizer_adamw"])
+                opt_adamuon.load_state_dict(_ckpt["optimizer_adamuon"])
+                scheduler.load_state_dict(_ckpt["scheduler_adamw"])
+                scheduler_adamuon.load_state_dict(_ckpt["scheduler_adamuon"])
+            else:
+                optimizer.load_state_dict(_ckpt["optimizer"])
+                scheduler.load_state_dict(_ckpt["scheduler"])
+            logger.info(f"Restored optimizer and scheduler state from {_opt_path}")
+            del _ckpt
+        else:
+            logger.warning(
+                f"No optimizer.pt in {args.continue_from}: optimizer momentum and "
+                f"LR schedule will restart from scratch")
+
     if not args.single_cuda:
         model: LlamaForCausalLM = torch.nn.parallel.DistributedDataParallel(
             model,
