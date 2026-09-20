@@ -168,3 +168,39 @@ This repository is build upon the [Galore](https://github.com/jiaweizzhao/GaLore
 -  Edit those file for sbatch request:
 - /data/project/le-lab/Soren/llama_pretraining/scripts/1B/HTMuonInterval.sh
 - /data/project/le-lab/Soren/llama_pretraining/scripts/1B/Soren.sh
+
+
+## Uploading the model checkpoint HTMUON
+```bash
+conda activate /data/project/le-lab/conda_env/htmuon
+export HF_HOME=/data/project/le-lab/conda_env/.hf_cache
+export HF_TOKEN=<your-hf-token>       
+
+python /data/project/le-lab/Soren/runs/.bench/upload_ckpt.py tucnguyen \
+    /data/project/le-lab/Soren/runs/htmuon_interval_1b_97887/model_15000 \
+    /data/project/le-lab/Soren/runs/htmuon_interval_1b_97887/model_15001
+```
+
+## Uploading the model checkpoint AdamW
+```bash
+conda activate /data/project/le-lab/conda_env/htmuon
+export HF_HOME=/data/project/le-lab/conda_env/.hf_cache
+export HF_TOKEN=<your-hf-token>       
+export HF_REPO=soren-1b
+
+python /data/project/le-lab/Soren/runs/.bench/upload_ckpt.py tucnguyen \
+    /data/project/le-lab/Soren/runs/soren_1b_muonlr_0.01_98064/model_15000 \
+    /data/project/le-lab/Soren/runs/soren_1b_muonlr_0.01_98064/model_15001
+```
+
+## Uploading MUON 1B checkpoint
+```bash
+conda activate /data/project/le-lab/conda_env/htmuon
+export HF_HOME=/data/project/le-lab/conda_env/.hf_cache
+export HF_TOKEN=<your-hf-token>       
+export HF_REPO=muon-1b
+
+python /data/project/le-lab/Soren/runs/.bench/upload_ckpt.py tucnguyen \
+    /data/project/le-lab/Soren/runs/muon_1b_98877/model_15000 \
+    /data/project/le-lab/Soren/runs/muon_1b_98877/model_15001
+```

@@ -119,6 +119,10 @@ def parse_args(args):
 
     
     parser.add_argument("--use_hf_model", default=False, action="store_true")
+    # Read by the "adamw" branch (configure_optimizers) but never declared, so
+    # --optimizer adamw died with AttributeError. False = wrap the flat parameter
+    # list in a single weight-decay group, which is what that branch expects.
+    parser.add_argument("--use_modulewise_wd", default=False, action="store_true")
     parser.add_argument("--gradient_accumulation", type=int, default=None)
     parser.add_argument("--save_dir", type=str, default=None)
     parser.add_argument("--max_length", type=int, default=256)
