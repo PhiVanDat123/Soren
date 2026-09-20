@@ -31,8 +31,8 @@ GPUS=${GPUS:-${SLURM_GPUS_ON_NODE:-4}}
 MICRO_BATCH=${MICRO_BATCH:-64}
 TOTAL_BATCH=${TOTAL_BATCH:-512}       # global batch, held fixed across GPU counts
 LRMUON=${LRMUON:-5e-3}                # stock 350M value
-STEPS=${STEPS:-60000}
-WARMUP=${WARMUP:-6000}
+STEPS=${STEPS:-10000}
+WARMUP=${WARMUP:-1000}
 EVAL_EVERY=${EVAL_EVERY:-1000}
 RUN_NAME=${RUN_NAME:-soren_350m_muonlr_${LRMUON}}
 
