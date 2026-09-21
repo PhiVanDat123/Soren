@@ -119,6 +119,9 @@ def parse_args(args):
 
     
     parser.add_argument("--use_hf_model", default=False, action="store_true")
+    parser.add_argument("--model_name_or_path", type=str, default=None)
+    parser.add_argument("--tokenizer_name_or_path", type=str, default="t5-base")
+    parser.add_argument("--trust_remote_code", default=False, action="store_true")
     # Read by the "adamw" branch (configure_optimizers) but never declared, so
     # --optimizer adamw died with AttributeError. False = wrap the flat parameter
     # list in a single weight-decay group, which is what that branch expects.
@@ -252,7 +255,13 @@ def main(args):
             data, rank=global_rank, world_size=world_size,
         )
 
-    tokenizer = AutoTokenizer.from_pretrained("t5-base", model_max_length=args.max_length)
+    tokenizer = AutoTokenizer.from_pretrained(
+        args.tokenizer_name_or_path,
+        model_max_length=args.max_length,
+        trust_remote_code=args.trust_remote_code,
+    )
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
 
     def preprocess_batched(batch):
         batch = tokenizer(
@@ -267,9 +276,22 @@ def main(args):
     dataset = PreprocessedIterableDataset(data, tokenizer, batch_size=args.batch_size, max_length=args.max_length)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=None, num_workers=args.workers)
 
-    model_config = AutoConfig.from_pretrained(args.model_config)
+    config_name_or_path = args.model_name_or_path or args.model_config
+    model_config = AutoConfig.from_pretrained(
+        config_name_or_path,
+        trust_remote_code=args.trust_remote_code,
+    )
     if args.use_hf_model:
-        model: HF_LlamaForCausalLM = AutoModelForCausalLM.from_config(model_config)
+        if args.model_name_or_path is not None:
+            model: HF_LlamaForCausalLM = AutoModelForCausalLM.from_pretrained(
+                args.model_name_or_path,
+                trust_remote_code=args.trust_remote_code,
+            )
+        else:
+            model: HF_LlamaForCausalLM = AutoModelForCausalLM.from_config(
+                model_config,
+                trust_remote_code=args.trust_remote_code,
+            )
     else:
         model = LlamaForCausalLM(model_config)
 
@@ -615,8 +637,9 @@ def main(args):
             logger.info(f"Saving model and optimizer to {current_model_directory}, update step {update_step}")
             os.makedirs(args.save_dir, exist_ok=True)
 
-            model.module.generation_config.pad_token_id=0
+            model.module.generation_config.pad_token_id = tokenizer.pad_token_id
             model.module.save_pretrained(current_model_directory, max_shard_size='100GB', safe_serialization=False)
+            tokenizer.save_pretrained(current_model_directory)
 
             
             if args.optimizer.lower() == "a_d_a_m_u_o_n":
@@ -712,8 +735,9 @@ def main(args):
     if global_rank == 0:
         logger.info(f"Saving model and optimizer to {current_model_directory}, update step {update_step}")
         os.makedirs(args.save_dir, exist_ok=True)
-        model.module.generation_config.pad_token_id=0
+        model.module.generation_config.pad_token_id = tokenizer.pad_token_id
         model.module.save_pretrained(current_model_directory, safe_serialization=False)
+        tokenizer.save_pretrained(current_model_directory)
 
         if args.optimizer.lower() == "a_d_a_m_u_o_n":
             optimizer_checkpoint = {
