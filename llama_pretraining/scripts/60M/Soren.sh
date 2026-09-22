@@ -2,10 +2,10 @@ export WANDB_API_KEY='Your_WandB_API_Key_Here'
 export CUDA_VISIBLE_DEVICES=0,1
 torchrun --nproc_per_node=2 --master_port=20119 --master_addr=localhost torchrun_main_HTMuon.py \
     --model_config configs/llama_60m.json \
-    --optimizer muon \
+    --optimizer soren \
     --seed 5 \
     --lr 0.001 \
-    --lrmuon 0.01\
+    --lrmuon 0.03\
     --batch_size 256 \
     --total_batch_size 512 \
     --num_training_steps 5000 \
@@ -15,7 +15,7 @@ torchrun --nproc_per_node=2 --master_port=20119 --master_addr=localhost torchrun
     --eval_every 500 \
     --wandb_name 'Your_WandB_Name_Here' \
     --target_eval_tokens 10_000_000 \
-    --save_dir outputs/llama_60m_muon \
-    --spectral_log_dir outputs/llama_60m_muon/spectral_logs \
+    --save_dir outputs/llama_60m_soren \
+    --spectral_log_dir outputs/llama_60m_soren/spectral_logs \
     --spectral_log_steps first_middle_last \
     --save_every 5000

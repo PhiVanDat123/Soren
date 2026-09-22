@@ -3,6 +3,7 @@ import time
 import json
 import random
 import argparse
+import os
 import numpy as np
 import inspect
 import torch
@@ -30,8 +31,10 @@ from peft_pretraining.dataloader import PreprocessedIterableDataset
 from peft_pretraining.modeling_llama import LlamaForCausalLM
 
 from muon import MuonWithAuxAdam,HTMuonHTWithAuxAdam, HTMuonWithAuxAdam,HTMuonNSWithAuxAdam,HTMuonIntervalWithAuxAdam,HTMuonNSIntervalWithAuxAdam,HTMuonWithAuxAdam_Stream
+from muon import zeropower_via_newtonschulz5 as muon_zeropower_via_newtonschulz5
 from soren_lamda import MuonWithAuxAdam_lamdba
 from soren import MuonWithAuxAdam_sigmoid
+from soren import newton_schulz_sigmoid_rect
 
 from AdEMAMix import AdEMAMix
 from c_adamw import AdamW as C_AdamW
@@ -40,6 +43,106 @@ from normuon import NorMuonWithAuxAdam,HTNorMuonHTWithAuxAdam,HTNorMuonWithAuxAd
 from opt_config import configure_optimizers as opt_configure_optimizers
 
 transformers.logging.set_verbosity_error()
+
+
+def parse_spectral_log_steps(value, num_training_steps):
+    if value is None or str(value).strip().lower() in ("", "first_middle_last"):
+        return {1, max(1, num_training_steps // 2), num_training_steps}
+    if str(value).strip().lower() == "first_last":
+        return {1, num_training_steps}
+    return {int(step.strip()) for step in str(value).split(",") if step.strip()}
+
+
+@torch.no_grad()
+def log_soren_singular_values(model, optimizer, update_step, output_dir, global_rank, layer_indices=None):
+    if global_rank != 0:
+        return
+
+    module = model.module if hasattr(model, "module") else model
+    param_names = {id(p): name for name, p in module.named_parameters()}
+    rows = {}
+    metadata = []
+    layer_rows = {}
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    for group in optimizer.param_groups:
+        if not group.get("use_muon", False):
+            continue
+
+        for p in group["params"]:
+            if p.grad is None or p.ndim < 2:
+                continue
+
+            name = param_names.get(id(p), f"param_{len(metadata)}")
+            if layer_indices is not None:
+                parts = name.split(".")
+                layer_idx = None
+                for i, part in enumerate(parts[:-1]):
+                    if part == "layers" and parts[i + 1].isdigit():
+                        layer_idx = int(parts[i + 1])
+                        break
+                if layer_idx not in layer_indices:
+                    continue
+            else:
+                layer_idx = None
+
+            grad = p.grad.detach()
+            momentum = optimizer.state[p].get("momentum_buffer")
+            beta = group["momentum"]
+            next_momentum = grad.mul(1 - beta) if momentum is None else momentum.detach().lerp(grad, 1 - beta)
+            update = grad.lerp(next_momentum, beta)
+            if update.ndim == 4:
+                update = update.view(len(update), -1)
+
+            update = update.float()
+            scale = max(1, update.size(-2) / update.size(-1))**0.5
+            original_spectrum = torch.linalg.svdvals(update).detach().cpu().numpy()
+
+            soren_update = newton_schulz_sigmoid_rect(update, steps=5) * scale
+            soren_spectrum = torch.linalg.svdvals(soren_update.float()).detach().cpu().numpy()
+
+            muon_update = muon_zeropower_via_newtonschulz5(update, steps=5) * scale
+            muon_spectrum = torch.linalg.svdvals(muon_update.float()).detach().cpu().numpy()
+
+            safe_name = name.replace(".", "__")
+            rows[f"{safe_name}__original"] = original_spectrum
+            rows[f"{safe_name}__soren"] = soren_spectrum
+            rows[f"{safe_name}__muon"] = muon_spectrum
+            metadata.append({
+                "name": name,
+                "safe_name": safe_name,
+                "layer_idx": layer_idx,
+                "update_step": update_step,
+                "shape": list(p.shape),
+            })
+
+            if layer_idx is not None:
+                layer_bucket = layer_rows.setdefault(
+                    layer_idx,
+                    {"original": [], "soren": [], "muon": []},
+                )
+                layer_bucket["original"].append(original_spectrum)
+                layer_bucket["soren"].append(soren_spectrum)
+                layer_bucket["muon"].append(muon_spectrum)
+
+    if not rows:
+        logger.warning(f"No Soren spectra found to log at update step {update_step}")
+        return
+
+    for layer_idx, spectra in layer_rows.items():
+        for spectrum_name, chunks in spectra.items():
+            values = np.concatenate(chunks)
+            values = np.sort(values)[::-1]
+            rows[f"layer_{layer_idx}__step_{update_step}__{spectrum_name}"] = values
+            rows[f"layer_{layer_idx}__{spectrum_name}"] = values
+
+    rows["layers"] = np.array(sorted(layer_rows.keys()), dtype=np.int64)
+    rows["metadata_json"] = np.array(json.dumps(metadata))
+    rows["update_step"] = np.array(update_step, dtype=np.int64)
+    out_path = os.path.join(output_dir, f"soren_spectrum_step{update_step:06d}.npz")
+    np.savez_compressed(out_path, **rows)
+    logger.info(f"Saved Soren singular value spectra to {out_path}")
 
 
 def configure_optimizers(param_dict, weight_decay, learning_rate, device_type, determined):
@@ -128,6 +231,9 @@ def parse_args(args):
     parser.add_argument("--use_modulewise_wd", default=False, action="store_true")
     parser.add_argument("--gradient_accumulation", type=int, default=None)
     parser.add_argument("--save_dir", type=str, default=None)
+    parser.add_argument("--spectral_log_dir", type=str, default=None)
+    parser.add_argument("--spectral_log_steps", type=str, default="first_middle_last",
+                        help="Comma-separated update steps for spectrum logging, first_last, or first_middle_last.")
     parser.add_argument("--max_length", type=int, default=256)
     parser.add_argument("--scheduler", type=str, default="cosine", choices=["linear", "cosine", "cosine_restarts"])
     parser.add_argument("--min_lr_ratio", type=float, default=0.1)
@@ -582,6 +688,9 @@ def main(args):
     update_time = time.time()
     local_step = 0
     layermean_alpha = None
+    spectral_log_steps = parse_spectral_log_steps(args.spectral_log_steps, args.num_training_steps)
+    spectral_log_dir = args.spectral_log_dir or os.path.join(args.save_dir, "spectral_logs")
+    spectral_log_layer_indices = {0, len(model.model.layers) - 1}
 
     for batch_idx, batch in enumerate(dataloader): 
         global_step += 1
@@ -614,6 +723,20 @@ def main(args):
         if global_rank == 0: pbar.update(1) 
 
         wd = args.weight_decay                        
+        next_update_step = update_step + 1
+
+        if (
+            args.optimizer.lower() in ("soren", "muon")
+            and next_update_step in spectral_log_steps
+        ):
+            log_soren_singular_values(
+                model=model,
+                optimizer=optimizer,
+                update_step=next_update_step,
+                output_dir=spectral_log_dir,
+                global_rank=global_rank,
+                layer_indices=spectral_log_layer_indices,
+            )
         
         # ================== step & scheduler ==================
         if args.optimizer.lower() == "a_d_a_m_u_o_n":
