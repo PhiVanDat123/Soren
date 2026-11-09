@@ -35,6 +35,7 @@ from muon import zeropower_via_newtonschulz5 as muon_zeropower_via_newtonschulz5
 from soren_lamda import MuonWithAuxAdam_lamdba
 from soren import MuonWithAuxAdam_sigmoid
 from soren import newton_schulz_sigmoid_rect
+from approximation_metrics import ApproximationLogger
 
 from AdEMAMix import AdEMAMix
 from c_adamw import AdamW as C_AdamW
@@ -232,6 +233,13 @@ def parse_args(args):
     parser.add_argument("--gradient_accumulation", type=int, default=None)
     parser.add_argument("--save_dir", type=str, default=None)
     parser.add_argument("--spectral_log_dir", type=str, default=None)
+    parser.add_argument("--approximation_log_dir", type=str, default=None,
+                        help="Enable actual optimizer-output vs SVD diagnostics in rank-specific .txt files")
+    parser.add_argument("--approximation_log_every", type=int, default=0,
+                        help="Additional diagnostic frequency in optimizer steps; 0 means snapshot steps only")
+    parser.add_argument("--approximation_log_steps", type=str, default="first_middle_last")
+    parser.add_argument("--approximation_log_param_regex", type=str, default=None,
+                        help="Optional regex on parameter names; default logs all matrix optimizer parameters")
     parser.add_argument("--spectral_log_steps", type=str, default="first_middle_last",
                         help="Comma-separated update steps for spectrum logging, first_last, or first_middle_last.")
     parser.add_argument("--max_length", type=int, default=256)
@@ -690,7 +698,21 @@ def main(args):
     layermean_alpha = None
     spectral_log_steps = parse_spectral_log_steps(args.spectral_log_steps, args.num_training_steps)
     spectral_log_dir = args.spectral_log_dir or os.path.join(args.save_dir, "spectral_logs")
-    spectral_log_layer_indices = {0, len(model.model.layers) - 1}
+    unwrapped_model = model.module if hasattr(model, "module") else model
+    spectral_log_layer_indices = {0, len(unwrapped_model.model.layers) - 1}
+    approximation_logger = None
+    if args.approximation_log_dir is not None:
+        if args.optimizer.lower() not in ("soren", "muon"):
+            raise ValueError("Approximation diagnostics currently support --optimizer soren or muon")
+        approximation_logger = ApproximationLogger(
+            args.approximation_log_dir, unwrapped_model.named_parameters(),
+            args.optimizer.lower(), rank=global_rank,
+            every=args.approximation_log_every,
+            steps=parse_spectral_log_steps(args.approximation_log_steps, args.num_training_steps),
+            parameter_regex=args.approximation_log_param_regex,
+        )
+        optimizer.approximation_logger = approximation_logger
+        logger.info(f"Approximation errors will be appended to {approximation_logger.path}")
 
     for batch_idx, batch in enumerate(dataloader): 
         global_step += 1
@@ -724,6 +746,8 @@ def main(args):
 
         wd = args.weight_decay                        
         next_update_step = update_step + 1
+        if approximation_logger is not None:
+            approximation_logger.step = next_update_step
 
         if (
             args.optimizer.lower() in ("soren", "muon")

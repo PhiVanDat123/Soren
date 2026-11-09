@@ -1,6 +1,7 @@
 import torch
 import torch.distributed as dist
 import math
+from approximation_metrics import approximation_callback
 
 def zeropower_via_newtonschulz5(G, steps: int):
     """
@@ -350,12 +351,15 @@ def msign3_ht(g: torch.Tensor) -> torch.Tensor:
     out32 = (U32 * d_broadcast) @ Vh32
     return out32.to(orig_dtype)
 
-def muon_update(grad, momentum, beta=0.95, ns_steps=5, nesterov=True):
+def muon_update(grad, momentum, beta=0.95, ns_steps=5, nesterov=True, diagnostic=None):
     momentum.lerp_(grad, 1 - beta)
     update = grad.lerp_(momentum, beta) if nesterov else momentum
     if update.ndim == 4: # for the case of conv filters
         update = update.view(len(update), -1)
+    transform_input = update
     update = zeropower_via_newtonschulz5(update, steps=ns_steps)
+    if diagnostic is not None:
+        diagnostic(transform_input, update, "muon")
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
@@ -858,7 +862,7 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum_buffer"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum_buffer"], beta=group["momentum"])
+                    update = muon_update(p.grad, state["momentum_buffer"], beta=group["momentum"], diagnostic=approximation_callback(self, p))
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update.reshape(p.shape), alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + dist.get_world_size()], params_pad[base_i + dist.get_rank()])
@@ -890,7 +894,7 @@ class SingleDeviceMuon(torch.optim.Optimizer):
                 state = self.state[p]
                 if len(state) == 0:
                     state["momentum_buffer"] = torch.zeros_like(p)
-                update = muon_update(p.grad, state["momentum_buffer"], beta=group["momentum"])
+                update = muon_update(p.grad, state["momentum_buffer"], beta=group["momentum"], diagnostic=approximation_callback(self, p))
                 p.mul_(1 - group["lr"] * group["weight_decay"])
                 p.add_(update.reshape(p.shape), alpha=-group["lr"])
 
@@ -1067,7 +1071,7 @@ class MuonWithAuxAdam(torch.optim.Optimizer):
                         state = self.state[p]
                         if len(state) == 0:
                             state["momentum_buffer"] = torch.zeros_like(p)
-                        update = muon_update(p.grad, state["momentum_buffer"], beta=group["momentum"])
+                        update = muon_update(p.grad, state["momentum_buffer"], beta=group["momentum"], diagnostic=approximation_callback(self, p))
                         p.mul_(1 - group["lr"] * group["weight_decay"])
                         p.add_(update.reshape(p.shape), alpha=-group["lr"])
                     dist.all_gather(params_pad[base_i:base_i + dist.get_world_size()], params_pad[base_i + dist.get_rank()])
@@ -1138,7 +1142,7 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum_buffer"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum_buffer"], beta=group["momentum"])
+                    update = muon_update(p.grad, state["momentum_buffer"], beta=group["momentum"], diagnostic=approximation_callback(self, p))
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update.reshape(p.shape), alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + dist.get_world_size()], params_pad[base_i + dist.get_rank()])
@@ -1170,7 +1174,7 @@ class SingleDeviceMuon(torch.optim.Optimizer):
                 state = self.state[p]
                 if len(state) == 0:
                     state["momentum_buffer"] = torch.zeros_like(p)
-                update = muon_update(p.grad, state["momentum_buffer"], beta=group["momentum"])
+                update = muon_update(p.grad, state["momentum_buffer"], beta=group["momentum"], diagnostic=approximation_callback(self, p))
                 p.mul_(1 - group["lr"] * group["weight_decay"])
                 p.add_(update.reshape(p.shape), alpha=-group["lr"])
 
@@ -1944,7 +1948,7 @@ class SingleDeviceMuonWithAuxAdam(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum_buffer"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum_buffer"], beta=group["momentum"])
+                    update = muon_update(p.grad, state["momentum_buffer"], beta=group["momentum"], diagnostic=approximation_callback(self, p))
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update.reshape(p.shape), alpha=-group["lr"])
             else:

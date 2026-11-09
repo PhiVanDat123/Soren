@@ -18,4 +18,7 @@ torchrun --nproc_per_node=2 --master_port=20119 --master_addr=localhost torchrun
     --save_dir outputs/llama_60m_muon \
     --spectral_log_dir outputs/llama_60m_muon/spectral_logs \
     --spectral_log_steps first_middle_last \
+    --approximation_log_dir outputs/llama_60m_muon/approximation_logs \
+    --approximation_log_every 0 \
+    --approximation_log_steps first_middle_last \
     --save_every 5000
